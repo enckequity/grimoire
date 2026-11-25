@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from pathlib import Path
 
 # Not .json or .txt: those are often config and logs, which the read guard must not block.
@@ -67,16 +68,17 @@ def _document_cache():
         return None
 
 
-def _hermes_refuses(real_path):
+def hermes_refuses(real_path):
     """True when Hermes' own read guard blocks the path (credential stores, device and process files, .env files
     anywhere), or it is in the Hermes home or root (every profile, its state, sessions and memory). The one opening
     is the active profile's inbound document cache, where files sent in chat arrive. Fails closed when the guard is
-    there but raises; outside a Hermes runtime (the self-test) only the ~ folders below apply."""
+    there but raises, or when a Hermes runtime is loaded without it; outside a Hermes runtime (the self-test) only
+    the ~ folders below apply."""
     try:
         from agent.file_safety import get_read_block_error
         from hermes_constants import get_default_hermes_root, get_hermes_home
     except ImportError:
-        return False
+        return "hermes_cli" in sys.modules or "gateway" in sys.modules
     try:
         if get_read_block_error(str(real_path)):
             return True
@@ -92,7 +94,7 @@ def _hermes_refuses(real_path):
 def private_folder(real_path, home=None):
     """The private folder that holds real_path, or None. HERMES_HOME for the Hermes home and anything Hermes'
     read guard refuses: allow_private_folders does not open those."""
-    if _hermes_refuses(real_path):
+    if hermes_refuses(real_path):
         return HERMES_HOME
     home = os.path.realpath(home or os.path.expanduser("~"))
     try:

@@ -1047,7 +1047,7 @@ def test_security(tmp, db):
     assert guard.private_folder(str(home / "data" / "a.csv"), home=str(home)) is None
     hermes_db = Path.home() / ".hermes" / "state.db"
     r = call(tools.attach, path=str(hermes_db))
-    assert "does not open" in r.get("error", "") and "~/.hermes" in r["error"] or "own folders" in r["error"], r
+    assert "does not open" in r.get("error", "") and ("~/.hermes" in r["error"] or "own folders" in r["error"]), r
     # a pattern or a folder in a private place gets the same answer whether files match or not
     # built with Path like the checks above (a literal home path in a test reads as file access to the scanner)
     for pattern in (str(Path.home() / ".ssh" / "*.csv"), str(Path.home() / ".SSH" / "no_such_*.parquet"), "~/.hermes",
@@ -1250,6 +1250,26 @@ def test_hermes_home():
                     assert "own folders" in str(exc) and "Hermes" not in str(exc), exc
         eng = engine.Engine()
         assert eng.attach(str(outside / "data.csv"))[0] == "data"
+        assert eng.attach(str(documents / "sent.csv"))[0] == "sent"
+        # a link planted in an attached folder after the attach is refused on the next rebuild
+        folder = Path(tempfile.mkdtemp())
+        (folder / "a.csv").write_text("x\n1\n")
+        assert eng.attach(str(folder))[0] == folder.name
+        (folder / "b.csv").symlink_to(hermes_home / "data.csv")
+        eng.attach(str(outside / "data.csv"), name="again")
+        assert folder.name not in eng.datasets and "own folders" in eng._left_out[folder.name], eng._left_out
+    finally:
+        for name, mod in saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+    # inside a Hermes runtime whose guard cannot be imported, everything is refused (fails closed)
+    missing = {"agent.file_safety": None, "hermes_cli": sys.modules.get("hermes_cli") or types.ModuleType("hermes_cli")}
+    saved = {name: sys.modules.get(name) for name in missing}
+    sys.modules.update(missing)
+    try:
+        assert guard.private_folder(str(outside / "data.csv"), home=str(outside)) == guard.HERMES_HOME
     finally:
         for name, mod in saved.items():
             if mod is None:
