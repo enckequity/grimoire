@@ -940,7 +940,7 @@ def test_review_fixes(tmp, db):
     assert dict(eng.schema('"late"."t"'))["code"] == "VARCHAR"
     # C-4: private folders are refused whatever the case, and for every file a pattern expands to
     home = Path(os.path.expanduser("~"))
-    assert pkg.guard.private_folder(str(home / ".HERMES" / "auth.json")) == ".hermes"
+    assert pkg.guard.private_folder(str(home / ".HERMES" / "auth.json")) in (".hermes", pkg.guard.HERMES_HOME)
     assert pkg.guard.private_folder(str(home / "library" / "Messages" / "chat.db")) == "Library"
     for trick in ("~/.HERMES/auth.json", "~/.herme?/*.json"):
         if list(Path(os.path.expanduser("~/.hermes")).glob("*.json")):
@@ -1047,7 +1047,7 @@ def test_security(tmp, db):
     assert guard.private_folder(str(home / "data" / "a.csv"), home=str(home)) is None
     hermes_db = Path.home() / ".hermes" / "state.db"
     r = call(tools.attach, path=str(hermes_db))
-    assert "does not open files in ~/.hermes" in r.get("error", ""), r
+    assert "does not open" in r.get("error", "") and "~/.hermes" in r["error"] or "own folders" in r["error"], r
     # a pattern or a folder in a private place gets the same answer whether files match or not
     # built with Path like the checks above (a literal home path in a test reads as file access to the scanner)
     for pattern in (str(Path.home() / ".ssh" / "*.csv"), str(Path.home() / ".SSH" / "no_such_*.parquet"), "~/.hermes",
@@ -1199,6 +1199,71 @@ def test_restart(tmp):
     finally:
         del eng.query
     assert pkg.sqltree.parse("SELECT 1 -- " + "x" * pkg.sqltree.MAX_SQL) is None  # too long to parse and keep
+
+
+def test_hermes_home():
+    """The Hermes home and root, and whatever Hermes' read guard refuses, stay closed even with
+    allow_private_folders: the guard asks the runtime (stubbed here, so the test runs anywhere)."""
+    import types
+    root = Path(tempfile.mkdtemp())
+    hermes_home, outside = root / "profiles" / "work", Path(tempfile.mkdtemp())
+    hermes_home.mkdir(parents=True)
+    for folder in (hermes_home, root, outside):
+        (folder / "data.csv").write_text("x\n1\n")
+    (outside / ".env.csv").write_text("x\n1\n")
+    calls = []
+
+    def block(path):
+        calls.append(path)
+        if path.endswith(".env.csv"):
+            return f"Access denied: {path} is a secret-bearing environment file."
+        if path.endswith("raise.csv"):
+            raise RuntimeError("guard broke")
+        return None
+
+    fake = {"agent": types.ModuleType("agent"), "agent.file_safety": types.ModuleType("agent.file_safety"),
+            "hermes_constants": types.ModuleType("hermes_constants"), "gateway": types.ModuleType("gateway"),
+            "gateway.platforms": types.ModuleType("gateway.platforms"),
+            "gateway.platforms.base": types.ModuleType("gateway.platforms.base")}
+    documents = hermes_home / "cache" / "documents"
+    documents.mkdir(parents=True)
+    (documents / "sent.csv").write_text("x\n1\n")
+    fake["gateway.platforms.base"].get_document_cache_dir = lambda: documents
+    fake["agent.file_safety"].get_read_block_error = block
+    fake["hermes_constants"].get_hermes_home = lambda: hermes_home
+    fake["hermes_constants"].get_default_hermes_root = lambda: root
+    saved = {name: sys.modules.get(name) for name in fake}
+    sys.modules.update(fake)
+    try:
+        for path in (hermes_home / "data.csv", root / "data.csv", root, outside / ".env.csv", outside / "raise.csv"):
+            assert guard.private_folder(str(path), home=str(outside)) == guard.HERMES_HOME, path
+        assert guard.private_folder(str(outside / "data.csv"), home=str(outside)) is None
+        assert guard.private_folder(str(documents / "sent.csv"), home=str(outside)) is None  # a file sent in chat
+        assert guard.private_folder(str(documents / ".." / "x.csv"), home=str(outside)) == guard.HERMES_HOME
+        assert calls, "the runtime's read guard was not asked"
+        for allow in (False, True):
+            for path in (hermes_home / "data.csv", outside / ".env.csv", str(root / "*.csv")):
+                try:
+                    engine.Engine().attach(str(path), allow_private=allow)
+                    raise AssertionError(path)
+                except engine.EngineError as exc:
+                    assert "own folders" in str(exc) and "Hermes" not in str(exc), exc
+        eng = engine.Engine()
+        assert eng.attach(str(outside / "data.csv"))[0] == "data"
+    finally:
+        for name, mod in saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+
+
+def test_white_label():
+    """No engine name in the reply footer or the forget reply."""
+    checked = verify.Checked(["3"], [], [], [], [])
+    assert verify.footer(checked).startswith("\n\n---\nNumber check:"), verify.footer(checked)
+    src = inspect.getsource(commands)
+    assert "Earlier chats keep their own copy" in src and "Hermes chat history" not in src
 
 
 def call(handler, **args):
