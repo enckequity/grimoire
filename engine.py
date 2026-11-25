@@ -348,6 +348,11 @@ class Engine:
 
     def _open(self, con, dataset, path, kind, merges):
         """Create one dataset's tables or view in con. Returns (table references, files a query may read)."""
+        # Every rebuild opens the files again (a folder or pattern may match new ones, a link may now point
+        # elsewhere), so the Hermes refusal is checked again here; the dataset is left out when it hits.
+        for f in [path] if kind == "sqlite" else files_of(path):
+            if guard.hermes_refuses(f):
+                raise EngineError(guard.private_error(guard.HERMES_HOME))
         if kind == "sqlite":
             key = _file_key(path)
             if key not in self._sqlite:  # export once per file version; every rebuild only reloads the CSVs
