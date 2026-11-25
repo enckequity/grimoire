@@ -122,8 +122,8 @@ def run(raw_args="", **kwargs):
             tools.forget_values()
             return (f"Deleted {rest[0]}: {_n(counts['columns'], 'column profile')} and notes, "
                     f"{_n(counts['merges'] + counts['pending_merges'], 'merge rule')}, {_n(counts['queries'], 'saved query', 'saved queries')}. "
-                    "The file did not change. Hermes chat history keeps its own copy of past "
-                    "results; delete those sessions in Hermes to remove it.")
+                    "The file did not change. Earlier chats keep their own copy of past "
+                    "results; delete those chats to remove it.")
         if cmd == "clear" and rest == ["history"]:
             n = store.clear_history(db)
             tools.forget_values()

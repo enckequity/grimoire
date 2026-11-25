@@ -202,7 +202,7 @@ class Engine:
         real = os.path.realpath(expanded)
         if is_many(expanded):
             folder = guard.private_folder(real)  # the pattern's own folder first: do not say if files match in there
-            if folder and not allow_private:
+            if folder and (folder == guard.HERMES_HOME or not allow_private):
                 raise EngineError(guard.private_error(folder))
             try:
                 files = files_of(real)
@@ -212,20 +212,20 @@ class Engine:
                 raise EngineError(f"No data files match {expanded}.")
             for f in files:
                 folder = guard.private_folder(f)
-                if folder and not allow_private:
+                if folder and (folder == guard.HERMES_HOME or not allow_private):
                     raise EngineError(guard.private_error(folder))
             kinds = {kind_of(f) for f in files}
             if len(kinds) != 1 or None in kinds or "sqlite" in kinds:
                 raise EngineError("A folder or pattern must hold files of one kind: all CSV, all JSON or all Parquet.")
             return real, kinds.pop(), dataset_name(expanded, name)
         folder = guard.private_folder(real)  # before any file test: the answer must not say whether it exists
-        if folder and not allow_private:
+        if folder and (folder == guard.HERMES_HOME or not allow_private):
             raise EngineError(guard.private_error(folder))
         try:
             os.stat(real)
         except PermissionError as exc:
             raise EngineError(
-                f"macOS or your system blocked access to {path}. Allow Hermes in System Settings > "
+                f"macOS or your system blocked access to {path}. Allow access in System Settings > "
                 "Privacy & Security > Files and Folders, or move the file to another folder."
             ) from exc
         except OSError:

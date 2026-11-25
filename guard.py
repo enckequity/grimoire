@@ -50,8 +50,50 @@ _PRIVATE = (".hermes", ".ssh", ".gnupg", ".aws", ".config", ".kube", ".docker", 
 _PRIVATE_OK = ("Library/Mobile Documents", "Library/CloudStorage")  # iCloud Drive, Dropbox and similar
 
 
+HERMES_HOME = "the assistant's home folder"
+
+
+def _under(real, folder):
+    folder = os.path.realpath(str(folder))
+    return real == folder or real.startswith(folder.rstrip(os.sep) + os.sep)
+
+
+def _document_cache():
+    """The active profile's inbound document cache (files a user sends in chat), or None."""
+    try:
+        from gateway.platforms.base import get_document_cache_dir
+        return get_document_cache_dir()
+    except Exception:
+        return None
+
+
+def _hermes_refuses(real_path):
+    """True when Hermes' own read guard blocks the path (credential stores, device and process files, .env files
+    anywhere), or it is in the Hermes home or root (every profile, its state, sessions and memory). The one opening
+    is the active profile's inbound document cache, where files sent in chat arrive. Fails closed when the guard is
+    there but raises; outside a Hermes runtime (the self-test) only the ~ folders below apply."""
+    try:
+        from agent.file_safety import get_read_block_error
+        from hermes_constants import get_default_hermes_root, get_hermes_home
+    except ImportError:
+        return False
+    try:
+        if get_read_block_error(str(real_path)):
+            return True
+        real = os.path.realpath(real_path)
+        if not any(_under(real, root) for root in (get_hermes_home(), get_default_hermes_root())):
+            return False
+        cache = _document_cache()
+        return not (cache and _under(real, cache))
+    except Exception:
+        return True
+
+
 def private_folder(real_path, home=None):
-    """The private folder that holds real_path, or None."""
+    """The private folder that holds real_path, or None. HERMES_HOME for the Hermes home and anything Hermes'
+    read guard refuses: allow_private_folders does not open those."""
+    if _hermes_refuses(real_path):
+        return HERMES_HOME
     home = os.path.realpath(home or os.path.expanduser("~"))
     try:
         rel = Path(os.path.realpath(real_path)).relative_to(home)
@@ -65,6 +107,9 @@ def private_folder(real_path, home=None):
 
 
 def private_error(folder):
+    if folder == HERMES_HOME:
+        return ("Grimoire does not open this file: it is a protected file, or it is in the assistant's own folders, "
+                "which hold its settings, history and credentials. Copy the data file to another folder first.")
     return (f"Grimoire does not open files in ~/{folder}, which holds private app data or "
             "credentials. Copy the file to another folder, or ask the user to set "
             "plugins.entries.grimoire.settings.allow_private_folders: true.")

@@ -323,6 +323,6 @@ def footer(checked, uncited=(), wrong=()):
         ("In the wrong row", [f"{raw} is {owner}'s value, not {label}'s" for raw, label, owner in wrong])) if which]
     if not problems:
         what = "the number traces" if total == 1 else f"all {total} numbers trace"
-        return f"\n\n---\nGrimoire check: {what} to query results{how}.{skipped}"
-    return (f"\n\n---\nGrimoire check: {traced} of {total} numbers trace to query results{how}. "
+        return f"\n\n---\nNumber check: {what} to query results{how}.{skipped}"
+    return (f"\n\n---\nNumber check: {traced} of {total} numbers trace to query results{how}. "
             f"{'. '.join(problems)}.{skipped}")

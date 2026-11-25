@@ -65,7 +65,7 @@ Other answers stay as the model wrote them.
 
 | Line | Means |
 |---|---|
-| `Grimoire check: all 2 numbers trace to query results` | Each number the check reads comes from a query result, or from simple arithmetic on numbers the reply shows |
+| `Number check: all 2 numbers trace to query results` | Each number the check reads comes from a query result, or from simple arithmetic on numbers the reply shows |
 | `No source query for: 2,000` | The model wrote a number that no query produced, for example a rounded or made-up count |
 | `Check how these were worked out: …` | The number only matches by combining two values the reply does not show, so it may be a coincidence |
 | `Not from a cited query: 137` | The number is in another result of this chat, but not in a query the answer cites, so it may be a coincidence |
