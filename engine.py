@@ -8,6 +8,7 @@ Safety model:
 - Only read statements are accepted, results are capped, and slow queries are interrupted.
 """
 
+import atexit
 import csv
 import datetime
 import decimal
@@ -54,7 +55,7 @@ def _duckdb():
         import duckdb
     except ImportError as exc:
         raise EngineError(
-            "DuckDB is not installed. Reinstall or re-enable the grimoire plugin and accept its Python dependencies."
+            "Data questions are not available here: the query engine is not installed."
         ) from exc
     return duckdb
 
@@ -165,6 +166,7 @@ class Engine:
         self._con = None
         # ponytail: one lock for all sessions; per-connection cursors if gateway concurrency hurts.
         self._lock = threading.RLock()
+        atexit.register(self.close)  # SQLite exports are plaintext copies; none outlives the process
 
     @property
     def datasets(self):
@@ -275,10 +277,22 @@ class Engine:
 
     def forget(self, dataset):
         with self._lock:
-            if self._sources.pop(dataset, None) is None:
+            source = self._sources.pop(dataset, None)
+            if source is None:
                 raise EngineError(f"Unknown dataset '{dataset}'.")
             self._merges.pop(dataset, None)
             self._rebuild()
+            self._drop_exports({path for path, _kind in self._sources.values()})
+
+    def _drop_exports(self, keep):
+        """Delete the plaintext CSV copies of SQLite files no open dataset reads any more."""
+        for key in [k for k in self._sqlite if k[0] not in keep]:
+            shutil.rmtree(self._sqlite.pop(key)[0], ignore_errors=True)
+
+    def close(self):
+        """Delete every SQLite export; called at exit so no plaintext copy outlives the process."""
+        with self._lock:
+            self._drop_exports(set())
 
     def set_merges(self, dataset, merges):
         """Replace the merge rules of an attached dataset and rebuild, so the next query follows them."""

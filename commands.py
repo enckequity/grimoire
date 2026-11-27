@@ -17,7 +17,7 @@ def _n(count, word, plural=None):
 
 HELP = """Commands:
   /grimoire                          status
-  /grimoire setup                    use fewer tokens: a Data bot with only Grimoire's tools
+  /grimoire setup                    how to get started
   /grimoire sql q12                  the SQL and result behind a query id
   /grimoire explain q12              how your question became that SQL
   /grimoire chart q12                a bar chart of a result
@@ -34,24 +34,11 @@ HELP = """Commands:
   /grimoire unmerge <dataset> [column]   remove merge rules (one column, or all)
   /grimoire forget <dataset>         delete everything saved about one file
   /grimoire clear history            delete all saved queries and results
-  /grimoire reset confirm            delete everything Grimoire saved"""
+  /grimoire reset confirm            delete everything saved for data questions"""
 
 
-SETUP = """Optional. Grimoire works in any chat; you do not need this.
-To use fewer tokens on data questions, chat with a Data bot that has only Grimoire's tools.
-Full Hermes sends every tool (terminal, browser, web and more) with every model call, mostly cached.
-A bot with only Grimoire's tools sends about a fifth of that.
-
-In Hermes Desktop:
-  1. Open the Bots tab, click +, then New bot. Name it data.
-  2. Click Advanced (below Description). Under General, clone from the profile that has Grimoire (usually default).
-  3. Open Capabilities, then Tools. Scroll down to the Build for Hermes box and switch off the switch in it (all tools).
-     Then search for grimoire and switch it on. Do the same for Clarifying Questions.
-  4. Click Create bot, then ask data questions in the data bot's chat.
-Already made a bot? Open its menu, choose Edit..., then Advanced and Capabilities.
-Your main agent keeps all its tools. Grimoire never changes your settings.
-
-In a terminal: hermes chat -t grimoire,clarify"""
+SETUP = """Nothing to set up. Send or name a CSV, JSON, Parquet or SQLite file in any chat and ask about it in plain words.
+Every number in the answer comes from a query, and a Number check line flags any number no query produced."""
 
 
 def version():
@@ -136,7 +123,7 @@ def run(raw_args="", **kwargs):
             for name in list(eng.datasets):
                 eng.forget(name)
             tools.forget_values()
-            return "Deleted everything Grimoire saved. Your files did not change."
+            return "Deleted everything saved for data questions. Your files did not change."
         return f"Unknown command: /grimoire {raw_args}\n{HELP}"
     except Exception as exc:  # a command must never crash the chat
         return f"/grimoire failed: {exc}"
@@ -144,7 +131,7 @@ def run(raw_args="", **kwargs):
 
 def _status(db, eng, session_id=None):
     sets = store.datasets(db)
-    lines = [f"Grimoire {version()}"]
+    lines = [f"Data questions {version()}"]
     if sets:
         lines.append("Data files:")
         for name, path, kind in sets:
@@ -162,7 +149,7 @@ def _status(db, eng, session_id=None):
     if size:
         lean = size[0] <= tools.LEAN_TOOLS
         lines.append(f"This chat: {size[0]} tools, about {size[1]:,} tokens per model call"
-                     + (" (lean setup)" if lean else ". Optional, for fewer tokens: /grimoire setup"))
+                     + (" (lean setup)" if lean else ""))
     return "\n".join(lines + ["", HELP])
 
 
@@ -177,7 +164,7 @@ def _define(db, eng, text):
         return f"Not saved: {exc}"
     store.define_metric(db, name, expression)
     return (f"Saved {name}() = {expression}. It works on: {', '.join(works)}. "
-            f"Ask in plain words; Grimoire tells the model to use {name}() so every answer computes it the same way.")
+            f"Ask in plain words; every answer uses {name}(), so it is computed the same way each time.")
 
 
 def _rerun(db, eng, qid):
@@ -201,7 +188,7 @@ def _report(db, dataset, eng=None):
     queries = store.queries_for(db, dataset)
     if not queries:
         return "No saved queries to report yet." if not dataset else f"No saved queries for {dataset}."
-    title = f"Grimoire report: {dataset}" if dataset else "Grimoire report"
+    title = f"Data report: {dataset}" if dataset else "Data report"
     folder = os.path.join(store.data_dir(db) or tempfile.gettempdir(), "reports")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"report-{datetime.datetime.now():%Y%m%d-%H%M%S}.html")

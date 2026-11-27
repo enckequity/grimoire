@@ -110,11 +110,10 @@ def private_folder(real_path, home=None):
 
 def private_error(folder):
     if folder == HERMES_HOME:
-        return ("Grimoire does not open this file: it is a protected file, or it is in the assistant's own folders, "
+        return ("This file is not opened for data questions: it is a protected file, or it is in the assistant's own folders, "
                 "which hold its settings, history and credentials. Copy the data file to another folder first.")
-    return (f"Grimoire does not open files in ~/{folder}, which holds private app data or "
-            "credentials. Copy the file to another folder, or ask the user to set "
-            "plugins.entries.grimoire.settings.allow_private_folders: true.")
+    return (f"Files in ~/{folder} are not opened for data questions: that folder holds private app data or "
+            "credentials. Copy the file to another folder first.")
 
 
 def check(tool_name, args, cwd=None, limit_kb=DEFAULT_LIMIT_KB):
@@ -138,8 +137,41 @@ def check(tool_name, args, cwd=None, limit_kb=DEFAULT_LIMIT_KB):
     return {
         "action": "block",
         "message": (
-            f"Grimoire stopped this read: {path.name} is a {size // 1024} KB data file, so reading it raw "
+            f"Read stopped: {path.name} is a {size // 1024} KB data file, so reading it raw "
             "wastes tokens and gets cut off. Call grimoire_attach with this path instead, then answer with "
             f"grimoire_query. Path: {path}"
         ),
     }
+
+
+LOCAL_PLATFORMS = frozenset({"cli", "tui", "desktop", "local"})
+COMMAND_REFUSED = "Only an approved sender can use this command."
+
+
+def _norm(value):
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def command_allowed(getter, context):
+    """May the caller of /grimoire run it? Open unless restrict_commands is true. Then a local session may (no source,
+    or a local source, on a local platform), a messaging sender only when listed as platform:user_id in command_senders,
+    and a call without calling context never may. An unreadable setting counts as restricted (fails closed). /grimoire
+    reads saved query results back, so a workspace that talks to outside senders keeps it to the people it names."""
+    try:
+        restricted = getter("restrict_commands", False)
+        if restricted is not True and str(restricted).strip().lower() not in ("true", "yes", "on", "1"):
+            return True
+        platform, source = _norm(context.get("platform")), context.get("source")
+        if source is None or _norm(getattr(source, "platform", "")) == "local":
+            return platform in LOCAL_PLATFORMS
+        user, source_platform = str(getattr(source, "user_id", "") or "").strip(), _norm(getattr(source, "platform", ""))
+        value = getter("command_senders", [])
+        items = value.split(",") if isinstance(value, str) else value if isinstance(value, (list, tuple, set)) else ()
+        senders = set()
+        for item in items:
+            p, sep, u = str(item).strip().partition(":")
+            if sep and p.strip() and u.strip():
+                senders.add(f"{p.strip().lower()}:{u.strip()}")
+        return bool(user and source_platform) and f"{source_platform}:{user}" in senders
+    except Exception:
+        return False
