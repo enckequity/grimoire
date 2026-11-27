@@ -26,7 +26,13 @@ def register(ctx):
             handler=_HANDLERS[schema["name"]],
         )
 
-    ctx.register_command("grimoire", commands.run, description="Data help. Try: learn on, setup, report, explain q1",
+    def command(raw_args="", **kwargs):
+        # restrict_commands (off by default): only a local session or a sender listed in command_senders.
+        if not guard.command_allowed(lambda key, default: ctx.get_config(key, default=default), kwargs):
+            return guard.COMMAND_REFUSED
+        return commands.run(raw_args, **kwargs)
+
+    ctx.register_command("grimoire", command, description="Data help. Try: learn on, setup, report, explain q1",
                          args_hint="[learn on|off|plain|sql | setup | report | explain q1 | merges]")
 
     tools.configure(allow_private_folders=ctx.get_config("allow_private_folders", default=False))

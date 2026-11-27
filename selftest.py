@@ -287,7 +287,7 @@ def test_data_quality(tmp, db):
 
     # slash command: status, sql, unknown
     status = commands.run("")
-    assert status.startswith("Grimoire ") and "messy" in status and "Learning mode" in status, status
+    assert status.startswith("Data questions ") and "messy" in status and "Learning mode" in status, status
     assert "SELECT region" in commands.run("sql q1")
     assert "Unknown command" in commands.run("dance")
 
@@ -867,9 +867,9 @@ def test_lean_setup(tmp, db):
         tools.remember_call("full", tool_count=31)
         tools.remember_call("full", tokens=tokens)
     assert "Tip:" not in tools.check_reply(reply, "full")
-    assert "31 tools, about 11,200 tokens per model call. Optional, for fewer tokens: /grimoire setup" in commands.run("", session_id="full")
+    assert "31 tools, about 11,200 tokens per model call\n" in commands.run("", session_id="full")
     text = commands.run("setup")
-    assert "New bot" in text and "Capabilities, then Tools." in text and "Grimoire never changes your settings" in text
+    assert text.startswith("Nothing to set up.") and "Number check" in text
     assert "—" not in text
     # a chat that did not use Grimoire gets nothing
     assert tools.check_reply("Hello 42.", "other") == ""
@@ -1047,12 +1047,12 @@ def test_security(tmp, db):
     assert guard.private_folder(str(home / "data" / "a.csv"), home=str(home)) is None
     hermes_db = Path.home() / ".hermes" / "state.db"
     r = call(tools.attach, path=str(hermes_db))
-    assert "does not open" in r.get("error", "") and ("~/.hermes" in r["error"] or "own folders" in r["error"]), r
+    assert "not opened" in r.get("error", "") and ("~/.hermes" in r["error"] or "own folders" in r["error"]), r
     # a pattern or a folder in a private place gets the same answer whether files match or not
     # built with Path like the checks above (a literal home path in a test reads as file access to the scanner)
     for pattern in (str(Path.home() / ".ssh" / "*.csv"), str(Path.home() / ".SSH" / "no_such_*.parquet"), "~/.hermes",
                     str(Path.home() / ".gnupg") + "/"):
-        assert "does not open files in ~/." in call(tools.attach, path=pattern).get("error", ""), pattern
+        assert "are not opened for data questions" in call(tools.attach, path=pattern).get("error", ""), pattern
 
 
 def test_one_check_per_file_version(tmp, db):
@@ -1279,11 +1279,60 @@ def test_hermes_home():
 
 
 def test_white_label():
-    """No engine name in the reply footer or the forget reply."""
+    """No engine or plugin name in the reply footer, the command replies, setup help or errors."""
     checked = verify.Checked(["3"], [], [], [], [])
     assert verify.footer(checked).startswith("\n\n---\nNumber check:"), verify.footer(checked)
     src = inspect.getsource(commands)
     assert "Earlier chats keep their own copy" in src and "Hermes chat history" not in src
+    shown = [commands.SETUP, commands.HELP.replace("/grimoire", ""), guard.private_error(guard.HERMES_HOME),
+             guard.private_error(".ssh"), commands.run("setup"), commands.run("reset")]
+    for text in shown:
+        for name in ("Hermes", "hermes", "Grimoire", "grimoire", "DuckDB", "Desktop", "plugins.entries"):
+            assert name not in text.replace("/grimoire", ""), (name, text)
+    assert "Grimoire" not in commands._status(*tools._get()).split("\n")[0]
+
+
+def test_command_senders():
+    """restrict_commands: /grimoire answers a local session or a listed sender, refuses everyone else, fails closed."""
+    class Src:
+        def __init__(self, platform, user_id):
+            self.platform, self.user_id = platform, user_id
+
+    def getter(**settings):
+        return lambda k, d: settings.get(k, d)
+
+    assert guard.command_allowed(getter(), {"platform": "sms", "source": Src("sms", "+15550100")})
+    on = getter(restrict_commands=True, command_senders=["sms:+15550199", "slack:U1"])
+    for ctx in ({}, {"platform": "sms", "source": Src("sms", "+15550100")}, {"platform": "telegram", "source": Src("telegram", "")},
+                {"platform": "sms", "source": Src("local", "x")}):
+        assert not guard.command_allowed(on, ctx), ctx
+    for ctx in ({"platform": "cli"}, {"platform": "desktop", "source": Src("local", "")},
+                {"platform": "sms", "source": Src("SMS", "+15550199")}):
+        assert guard.command_allowed(on, ctx), ctx
+    assert guard.command_allowed(getter(restrict_commands="true", command_senders="slack:U1"),
+                                 {"platform": "slack", "source": Src("slack", "U1")})
+
+    def boom(k, d):
+        raise RuntimeError("config unreadable")
+    assert not guard.command_allowed(boom, {"platform": "cli"})
+
+
+def test_sqlite_export_is_removed(tmp):
+    """The plaintext CSV copy of an attached SQLite file goes when the file is forgotten or the engine closes."""
+    import sqlite3
+    path = tmp / "exports.sqlite"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE t (x INTEGER)")
+    con.execute("INSERT INTO t VALUES (1)")
+    con.commit()
+    con.close()
+    for end in ("forget", "close"):
+        eng = engine.Engine()
+        name = eng.attach(str(path))[0]
+        folders = [folder for folder, _tables in eng._sqlite.values()]
+        assert folders and all(os.path.isdir(f) for f in folders)
+        eng.forget(name) if end == "forget" else eng.close()
+        assert not eng._sqlite and not any(os.path.exists(f) for f in folders), end
 
 
 def call(handler, **args):
